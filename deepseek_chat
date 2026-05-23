@@ -1,0 +1,61 @@
+# deepseek_chat.py
+import os
+import json
+from pathlib import Path
+from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class DeepSeekChat:
+    def __init__(self, api_key=None, base_url="https://api.deepseek.com/v1",
+                 model="deepseek-chat", memory_file="chat_memory.json"):
+        self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
+        if not self.api_key:
+            raise ValueError("请设置 DEEPSEEK_API_KEY 环境变量或在参数中提供")
+        self.client = OpenAI(api_key=self.api_key, base_url=base_url)
+        self.model = model
+        self.memory_file = Path(memory_file)
+        self.messages = []   # 对话历史
+        self.load_memory()
+
+    def send_message(self, content, system_prompt=None):
+        """发送用户消息并获取回复，自动维护对话历史"""
+        # 首次或指定系统提示时设置角色
+        if system_prompt and not any(m["role"] == "system" for m in self.messages):
+            self.messages.insert(0, {"role": "system", "content": system_prompt})
+        
+        self.messages.append({"role": "user", "content": content})
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=self.messages,
+                temperature=0.7,
+            )
+            reply = response.choices[0].message.content
+            self.messages.append({"role": "assistant", "content": reply})
+            self.save_memory()   # 每次对话后自动保存
+            return reply
+        except Exception as e:
+            return f"[错误] {str(e)}"
+
+    def clear_memory(self):
+        """清空当前对话历史（内存和文件）"""
+        self.messages = []
+        self.save_memory()
+
+    def save_memory(self):
+        """将对话历史保存为 JSON 文件"""
+        with open(self.memory_file, 'w', encoding='utf-8') as f:
+            json.dump({"messages": self.messages}, f, indent=2, ensure_ascii=False)
+
+    def load_memory(self):
+        """从文件加载历史对话"""
+        if self.memory_file.exists():
+            with open(self.memory_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                self.messages = data.get("messages", [])
+
+    def __repr__(self):
+        return f"<DeepSeekChat: {len(self.messages)} 条历史消息>"
